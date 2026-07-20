@@ -243,7 +243,8 @@ local function page(name)
     inst("TextLabel",{Size=UDim2.new(1,-58,0,25),Position=UDim2.fromOffset(15,6),BackgroundTransparency=1,Text="◆  "..name,Font=Enum.Font.FredokaOne,TextSize=16,TextColor3=Color3.fromRGB(255,236,255),TextXAlignment=Enum.TextXAlignment.Left},h)
     inst("TextLabel",{Size=UDim2.new(1,-58,0,18),Position=UDim2.fromOffset(17,30),BackgroundTransparency=1,Text=pageDescriptions[name] or "Nero garden magic",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(205,174,242),TextXAlignment=Enum.TextXAlignment.Left},h)
     local gem=inst("Frame",{Size=UDim2.fromOffset(17,17),Position=UDim2.new(1,-34,0,18),BackgroundColor3=Color3.fromRGB(218,117,255),BorderSizePixel=0,Rotation=45},h); inst("UICorner",{CornerRadius=UDim.new(0,4)},gem); inst("UIStroke",{Color=Color3.fromRGB(180,226,255),Transparency=.25,Thickness=1},gem)
-    TS:Create(gem,TweenInfo.new(2.2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{Rotation=135,BackgroundColor3=Color3.fromRGB(103,207,255)}):Play()
+    -- Keep the motion, but let the active palette own the gem color.
+    TS:Create(gem,TweenInfo.new(2.2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{Rotation=135}):Play()
     return p
 end
 local P={}; for _,n in ipairs(tabs) do P[n]=page(n) end
@@ -273,8 +274,18 @@ local function labelRow(p,title,desc)
     local accent=inst("Frame",{Size=UDim2.fromOffset(3,27),Position=UDim2.fromOffset(5,12),BackgroundColor3=Color3.fromRGB(207,101,255),BorderSizePixel=0},r); inst("UICorner",{CornerRadius=UDim.new(1,0)},accent); inst("UIGradient",{Color=ColorSequence.new(Color3.fromRGB(247,145,255),Color3.fromRGB(92,205,255)),Rotation=90},accent)
     inst("TextLabel",{Size=UDim2.new(1,-160,0,22),Position=UDim2.fromOffset(16,5),BackgroundTransparency=1,Text=title,Font=Enum.Font.GothamBold,TextSize=13,TextColor3=Color3.fromRGB(249,237,255),TextXAlignment=Enum.TextXAlignment.Left},r)
     inst("TextLabel",{Size=UDim2.new(1,-30,0,17),Position=UDim2.fromOffset(16,27),BackgroundTransparency=1,Text=desc or "",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(180,153,211),TextXAlignment=Enum.TextXAlignment.Left},r)
-    r.MouseEnter:Connect(function() TS:Create(stroke,TweenInfo.new(.18),{Transparency=.22,Color=Color3.fromRGB(213,121,255)}):Play(); TS:Create(r,TweenInfo.new(.18),{BackgroundColor3=Color3.fromRGB(57,28,88)}):Play() end)
-    r.MouseLeave:Connect(function() TS:Create(stroke,TweenInfo.new(.18),{Transparency=.62,Color=Color3.fromRGB(151,85,211)}):Play(); TS:Create(r,TweenInfo.new(.18),{BackgroundColor3=Color3.fromRGB(42,23,67)}):Play() end)
+    local function animateHover(strokeTransparency,strokeColor,backgroundColor)
+        local info=TweenInfo.new(.18)
+        if Nero.ThemeTween then
+            Nero.ThemeTween(stroke,info,{Transparency=strokeTransparency,Color=strokeColor})
+            Nero.ThemeTween(r,info,{BackgroundColor3=backgroundColor})
+        else
+            TS:Create(stroke,info,{Transparency=strokeTransparency,Color=strokeColor}):Play()
+            TS:Create(r,info,{BackgroundColor3=backgroundColor}):Play()
+        end
+    end
+    r.MouseEnter:Connect(function() animateHover(.22,Color3.fromRGB(213,121,255),Color3.fromRGB(57,28,88)) end)
+    r.MouseLeave:Connect(function() animateHover(.62,Color3.fromRGB(151,85,211),Color3.fromRGB(42,23,67)) end)
     return r
 end
 local TOGGLE_ON=Color3.fromRGB(177,73,255)
@@ -282,8 +293,18 @@ local TOGGLE_OFF=Color3.fromRGB(74,50,99)
 local function toggle(p,title,key,desc)
     local r=labelRow(p,title,desc); local b=inst("TextButton",{Size=UDim2.fromOffset(50,25),Position=UDim2.new(1,-64,0,12),BackgroundColor3=C[key] and TOGGLE_ON or TOGGLE_OFF,Text="",AutoButtonColor=false},r); inst("UICorner",{CornerRadius=UDim.new(1,0)},b); inst("UIStroke",{Color=Color3.fromRGB(225,155,255),Transparency=.42,Thickness=1},b)
     local dot=inst("Frame",{Size=UDim2.fromOffset(19,19),Position=C[key] and UDim2.fromOffset(28,3) or UDim2.fromOffset(3,3),BackgroundColor3=Color3.fromRGB(255,244,255),BorderSizePixel=0},b); inst("UICorner",{CornerRadius=UDim.new(1,0)},dot); inst("UIStroke",{Color=Color3.fromRGB(189,132,255),Transparency=.4,Thickness=1},dot)
-    b.MouseButton1Click:Connect(function() C[key]=not C[key]; TS:Create(b,TweenInfo.new(.2),{BackgroundColor3=C[key] and TOGGLE_ON or TOGGLE_OFF}):Play(); TS:Create(dot,TweenInfo.new(.2,Enum.EasingStyle.Back),{Position=C[key] and UDim2.fromOffset(28,3) or UDim2.fromOffset(3,3)}):Play(); persistConfigChange(key=="AutoSave") end)
-    addConfigRefresher(function() local on=C[key]==true; b.BackgroundColor3=on and TOGGLE_ON or TOGGLE_OFF; dot.Position=on and UDim2.fromOffset(28,3) or UDim2.fromOffset(3,3) end)
+    b.MouseButton1Click:Connect(function()
+        C[key]=not C[key]
+        local color=C[key] and TOGGLE_ON or TOGGLE_OFF
+        if Nero.ThemeTween then Nero.ThemeTween(b,TweenInfo.new(.2),{BackgroundColor3=color}) else TS:Create(b,TweenInfo.new(.2),{BackgroundColor3=color}):Play() end
+        TS:Create(dot,TweenInfo.new(.2,Enum.EasingStyle.Back),{Position=C[key] and UDim2.fromOffset(28,3) or UDim2.fromOffset(3,3)}):Play()
+        persistConfigChange(key=="AutoSave")
+    end)
+    addConfigRefresher(function()
+        local on=C[key]==true; local color=on and TOGGLE_ON or TOGGLE_OFF
+        if Nero.SetThemeBase then Nero.SetThemeBase(b,"BackgroundColor3",color) else b.BackgroundColor3=color end
+        dot.Position=on and UDim2.fromOffset(28,3) or UDim2.fromOffset(3,3)
+    end)
 end
 local function input(p,title,key,desc)
     local r=labelRow(p,title,desc); local b=inst("TextBox",{Size=UDim2.fromOffset(112,29),Position=UDim2.new(1,-126,0,10),BackgroundColor3=Color3.fromRGB(69,37,99),Text=tostring(C[key]),PlaceholderText="value",PlaceholderColor3=Color3.fromRGB(169,136,199),ClearTextOnFocus=false,Font=Enum.Font.GothamSemibold,TextSize=11,TextColor3=Color3.fromRGB(250,235,255)},r); inst("UICorner",{CornerRadius=UDim.new(0,8)},b); inst("UIStroke",{Color=Color3.fromRGB(187,108,241),Transparency=.45,Thickness=1},b)
@@ -303,7 +324,9 @@ local function gather(kind)
     elseif kind=="Mutation" then for name in pairs(MutationDefinitions) do add(name) end
     elseif kind=="Seed" then for _,v in pairs(SeedShopData.ShopData) do if type(v)=="table" then add(v.Name) end end
     elseif kind=="PlantSeed" then
-        for _,x in ipairs(LP.Backpack:GetChildren()) do if x:IsA("Tool") then add(x:GetAttribute("PlantType")) end end
+        for _,root in ipairs({LP:FindFirstChild("Backpack"),LP.Character}) do
+            if root then for _,x in ipairs(root:GetChildren()) do if x:IsA("Tool") and x:GetAttribute("Type")=="Seeds" then add(x:GetAttribute("PlantType")) end end end
+        end
     elseif kind=="Gear" then for key,v in pairs(GearShopData.ShopData) do add(type(v)=="table" and (v.Name or key) or key) end
     else
         local function scan(root)
@@ -356,8 +379,11 @@ local function multiSelect(p,title,key,kind,desc)
                     row.MouseButton1Click:Connect(function() C[key][token]=not (C[key][token]==true); Nero.selectionRevision[key]=(Nero.selectionRevision[key] or 0)+1; build(search.Text); refreshTitle(); persistConfigChange() end)
                 end
             end
+            -- Rows are rebuilt after every selection/search. Re-theme the new
+            -- instances immediately so they never flash back to base purple.
+            if Nero.ApplyCustomizationTo then Nero.ApplyCustomizationTo(pop) end
         end
-        search:GetPropertyChangedSignal("Text"):Connect(function() build(search.Text) end); build(""); if Nero.ApplyCustomization then Nero.ApplyCustomization() end
+        search:GetPropertyChangedSignal("Text"):Connect(function() build(search.Text) end); build("")
     end)
 end
 
@@ -430,7 +456,7 @@ dropdown(P.Customization,"Interface Size","InterfaceSize",{"Tiny","Normal","Big"
 dropdown(P.Customization,"N Circle Size","OrbSize",{"Tiny","Normal","Big"},"Resize the movable N launcher without moving its center")
 dropdown(P.Customization,"Font Size","FontSize",{"Small","Normal","Large"},"Resize every label, control and navigation title")
 local themeRow=labelRow(P.Customization,"GUI Color Palette","Choose an accent from the touch-friendly color wheel")
-local themePreview=inst("Frame",{Size=UDim2.fromOffset(28,28),Position=UDim2.new(1,-174,0,10),BackgroundColor3=Color3.fromHSV(C.ThemeHue,.75,1),BorderSizePixel=0},themeRow); inst("UICorner",{CornerRadius=UDim.new(1,0)},themePreview); inst("UIStroke",{Color=Color3.fromRGB(255,238,255),Transparency=.18,Thickness=2},themePreview)
+local themePreview=inst("Frame",{Size=UDim2.fromOffset(28,28),Position=UDim2.new(1,-174,0,10),BackgroundColor3=Color3.fromHSV(C.ThemeHue,.75,1),BorderSizePixel=0},themeRow); themePreview:SetAttribute("NeroThemeIgnore",true); inst("UICorner",{CornerRadius=UDim.new(1,0)},themePreview); inst("UIStroke",{Color=Color3.fromRGB(255,238,255),Transparency=.18,Thickness=2},themePreview)
 local themeButton=inst("TextButton",{Size=UDim2.fromOffset(124,29),Position=UDim2.new(1,-140,0,10),BackgroundColor3=Color3.fromRGB(69,37,99),Text="Open Color Wheel",Font=Enum.Font.GothamSemibold,TextSize=10,TextColor3=Color3.fromRGB(250,235,255),AutoButtonColor=false},themeRow); inst("UICorner",{CornerRadius=UDim.new(0,8)},themeButton); inst("UIStroke",{Color=Color3.fromRGB(187,108,241),Transparency=.45,Thickness=1},themeButton)
 themeButton.Activated:Connect(function() if openColorWheel then openColorWheel() end end)
 
@@ -468,7 +494,8 @@ local function selectTab(name)
     TS:Create(incoming,TweenInfo.new(.24,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.fromOffset(0,0),ScrollBarImageTransparency=0}):Play()
     for n,b in pairs(buttons) do
         local selected=n==name
-        TS:Create(b,TweenInfo.new(.18),{BackgroundTransparency=selected and .04 or 1,BackgroundColor3=selected and Color3.fromRGB(112,48,168) or Color3.fromRGB(68,35,101),TextColor3=selected and Color3.fromRGB(255,236,255) or Color3.fromRGB(185,157,211)}):Play()
+        local goals={BackgroundTransparency=selected and .04 or 1,BackgroundColor3=selected and Color3.fromRGB(112,48,168) or Color3.fromRGB(68,35,101),TextColor3=selected and Color3.fromRGB(255,236,255) or Color3.fromRGB(185,157,211)}
+        if Nero.ThemeTween then Nero.ThemeTween(b,TweenInfo.new(.18),goals) else TS:Create(b,TweenInfo.new(.18),goals):Play() end
         local stroke=b:FindFirstChild("MagicStroke"); if stroke then TS:Create(stroke,TweenInfo.new(.18),{Transparency=selected and .35 or 1}):Play() end
     end
 end
@@ -499,6 +526,34 @@ local function shiftedSequence(sequence)
     for _,point in ipairs(sequence.Keypoints) do table.insert(keypoints,ColorSequenceKeypoint.new(point.Time,shiftedColor(point.Value))) end
     return ColorSequence.new(keypoints)
 end
+local function rememberThemeBase(obj,property,value)
+    local original=themeOriginals[obj] or {}
+    themeOriginals[obj]=original
+    original[property]=value
+end
+local function themedValue(obj,property,value)
+    if typeof(value)=="Color3" then return shiftedColor(value) end
+    if typeof(value)=="ColorSequence" and obj:IsA("UIGradient") and property=="Color" then return shiftedSequence(value) end
+    return value
+end
+local function setThemeBase(obj,property,value)
+    if not obj then return end
+    if not themeIgnored(obj) then rememberThemeBase(obj,property,value) end
+    obj[property]=themeIgnored(obj) and value or themedValue(obj,property,value)
+end
+local function themeTween(obj,info,goals)
+    local themedGoals={}
+    local ignored=themeIgnored(obj)
+    for property,value in pairs(goals) do
+        if not ignored and (typeof(value)=="Color3" or typeof(value)=="ColorSequence") then rememberThemeBase(obj,property,value) end
+        themedGoals[property]=ignored and value or themedValue(obj,property,value)
+    end
+    local tween=TS:Create(obj,info,themedGoals)
+    tween:Play()
+    return tween
+end
+Nero.SetThemeBase=setThemeBase
+Nero.ThemeTween=themeTween
 local function applyThemeTo(root)
     if not root then return end
     local objects={root}; for _,obj in ipairs(root:GetDescendants()) do table.insert(objects,obj) end
@@ -538,16 +593,26 @@ end
 local interfaceFactors={Tiny=.78,Normal=1,Big=1.16}
 local fontFactors={Small=.86,Normal=1,Large=1.16}
 local orbSizes={Tiny={48,40,4,19},Normal={66,54,6,25},Big={84,70,7,32}}
+local function applyFontTo(root,fontFactor)
+    if not root then return end
+    local objects={root}; for _,obj in ipairs(root:GetDescendants()) do table.insert(objects,obj) end
+    for _,obj in ipairs(objects) do
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) and obj~=orb then
+            if fontOriginals[obj]==nil then fontOriginals[obj]=obj.TextSize end
+            obj.TextSize=math.clamp(math.floor(fontOriginals[obj]*fontFactor+.5),8,48)
+        end
+    end
+end
+local function applyCustomizationTo(root)
+    local fontFactor=fontFactors[C.FontSize] or 1
+    applyFontTo(root,fontFactor)
+    applyThemeTo(root)
+end
 local function applyCustomization()
     uiScale.Scale=responsiveScale*(interfaceFactors[C.InterfaceSize] or 1)
     local fontFactor=fontFactors[C.FontSize] or 1
     for _,root in ipairs({gui,loadingGui}) do
-        if root then for _,obj in ipairs(root:GetDescendants()) do
-            if (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) and obj~=orb then
-                if fontOriginals[obj]==nil then fontOriginals[obj]=obj.TextSize end
-                obj.TextSize=math.clamp(math.floor(fontOriginals[obj]*fontFactor+.5),8,48)
-            end
-        end end
+        applyFontTo(root,fontFactor)
     end
     local orbData=orbSizes[C.OrbSize] or orbSizes.Normal
     orbGlow.Size=UDim2.fromOffset(orbData[1],orbData[1])
@@ -558,6 +623,8 @@ local function applyCustomization()
     themePreview.BackgroundColor3=Color3.fromHSV(C.ThemeHue,.78,1)
 end
 Nero.ApplyCustomization=applyCustomization
+Nero.ApplyThemeTo=applyThemeTo
+Nero.ApplyCustomizationTo=applyCustomizationTo
 
 openColorWheel=function()
     local old=gui:FindFirstChild("NeroColorWheel"); if old then old:Destroy(); return end
@@ -698,7 +765,8 @@ spawnProcess(function()
                     local uuid=root:GetAttribute("Uuid")
                     if uuid then
                         local entry={Uuid=uuid}; local anchor=target:GetAttribute("GrowthAnchorIndex"); if anchor then entry.GrowthAnchorIndex=anchor end
-                        table.insert(batch,entry); table.insert(positions,target:GetPivot().Position)
+                        local ground=root:GetAttribute("PlantGroundPosition") or target:GetAttribute("PlantGroundPosition") or target:GetPivot().Position
+                        table.insert(batch,entry); table.insert(positions,ground)
                     end
                 end
             end
@@ -712,22 +780,89 @@ spawnProcess(function()
 end)
 local function plantableParts()
     local out={}; local plots=workspace:FindFirstChild("Plots")
-    if plots then for _,plot in ipairs(plots:GetChildren()) do if plot:IsA("Model") and plot:GetAttribute("Owner")==LP.UserId then local area=plot:FindFirstChild("PlantableArea"); if area then for _,p in ipairs(area:GetChildren()) do if p:IsA("BasePart") then table.insert(out,p) end end end end end end
+    if plots then
+        for _,plot in ipairs(plots:GetChildren()) do
+            local owner=plot:GetAttribute("Owner") or plot:GetAttribute("OwnerUserId")
+            if plot:IsA("Model") and (tonumber(owner)==LP.UserId or owner==LP) then
+                local area=plot:FindFirstChild("PlantableArea")
+                if area then for _,p in ipairs(area:GetDescendants()) do if p:IsA("BasePart") then table.insert(out,p) end end end
+            end
+        end
+    end
     return out
 end
 local function emptyAt(pos)
     if not C.EmptyOnly then return true end
-    for _,m in ipairs(CollectionService:GetTagged("Plant")) do if m:IsA("Model") and m:GetAttribute("OwnerUserId")==LP.UserId then local p=m:GetPivot().Position; if Vector2.new(p.X-pos.X,p.Z-pos.Z).Magnitude<3 then return false end end end
+    for _,m in ipairs(CollectionService:GetTagged("Plant")) do
+        if m:IsA("Model") and m:GetAttribute("OwnerUserId")==LP.UserId then
+            local p=m:GetAttribute("PlantGroundPosition") or m:GetPivot().Position
+            if Vector2.new(p.X-pos.X,p.Z-pos.Z).Magnitude<3 then return false end
+        end
+    end
     return true
 end
+local function randomPlantPoint(part)
+    -- PlantableArea uses a thin, rotated part. Its local X axis is the ground
+    -- normal in the current map, so sampling local X/Z placed every request on
+    -- an edge. Detect the thin axis and sample the other two dimensions.
+    local size=part.Size
+    local sizes={size.X,size.Y,size.Z}
+    local normalIndex=1
+    if sizes[2]<sizes[normalIndex] then normalIndex=2 end
+    if sizes[3]<sizes[normalIndex] then normalIndex=3 end
+    local axes={Vector3.new(1,0,0),Vector3.new(0,1,0),Vector3.new(0,0,1)}
+    local coordinates={0,0,0}
+    for i=1,3 do
+        if i==normalIndex then
+            local worldNormal=part.CFrame:VectorToWorldSpace(axes[i])
+            coordinates[i]=(worldNormal.Y>=0 and 1 or -1)*sizes[i]/2
+        else
+            local half=math.max(0,sizes[i]/2-1.5)
+            coordinates[i]=(math.random()*2-1)*half
+        end
+    end
+    return part.CFrame:PointToWorldSpace(Vector3.new(coordinates[1],coordinates[2],coordinates[3]))
+end
 local function nextPlantPosition()
-    if C.AutoReplant and #Nero.replantQueue>0 then return table.remove(Nero.replantQueue,1) end
+    if C.AutoReplant then
+        while #Nero.replantQueue>0 do
+            local queued=table.remove(Nero.replantQueue,1)
+            if typeof(queued)=="Vector3" and emptyAt(queued) then return queued end
+        end
+    end
     local parts=plantableParts(); if #parts==0 then return end
-    for _=1,30 do local p=parts[math.random(1,#parts)]; local x=(math.random()-.5)*math.max(0,p.Size.X-3); local z=(math.random()-.5)*math.max(0,p.Size.Z-3); local pos=(p.CFrame*CFrame.new(x,p.Size.Y/2,z)).Position; if emptyAt(pos) then return pos end end
+    for _=1,80 do
+        local pos=randomPlantPoint(parts[math.random(1,#parts)])
+        if emptyAt(pos) then return pos end
+    end
 end
 local function availableSeeds()
     local out={}
-    for _,tool in ipairs(LP.Backpack:GetChildren()) do if tool:IsA("Tool") then local plant=tool:GetAttribute("PlantType"); if plant and mapAllows(C.PlantSeedWhitelist,tostring(plant),tool.Name) then local ok,count=pcall(ItemInventory.getItemCount,tool); count=ok and count or tonumber(tool.Name:match("^x(%d+)")) or 1; if count>(tonumber(C.SeedReserve) or 0) then local data=SeedShopData.ShopData[plant]; table.insert(out,{Tool=tool,Plant=tostring(plant),Count=count,Price=data and data.Price or 0}) end end end end
+    local function shopSeedData(plant)
+        local direct=SeedShopData.ShopData[plant]
+        if type(direct)=="table" then return direct end
+        for key,data in pairs(SeedShopData.ShopData) do if type(data)=="table" and (data.Name==plant or key==plant) then return data end end
+    end
+    local function scan(root)
+        if not root then return end
+        for _,tool in ipairs(root:GetChildren()) do
+            if tool:IsA("Tool") then
+                local plant=tool:GetAttribute("PlantType")
+                local itemType=tool:GetAttribute("Type")
+                local baseName=tool:GetAttribute("BaseName") or tool.Name:gsub("^x%d+%s+","")
+                local allowed=plant and (mapAllows(C.PlantSeedWhitelist,tostring(plant),tostring(baseName)) or C.PlantSeedWhitelist[tool.Name]==true)
+                if plant and (itemType==nil or itemType=="Seeds") and allowed then
+                    local ok,count=pcall(ItemInventory.getItemCount,tool)
+                    count=tonumber(ok and count) or tonumber(tool.Name:match("^x(%d+)")) or 1
+                    if count>(tonumber(C.SeedReserve) or 0) then
+                        local data=shopSeedData(tostring(plant))
+                        table.insert(out,{Tool=tool,Plant=tostring(plant),Count=count,Price=tonumber(data and data.Price) or 0})
+                    end
+                end
+            end
+        end
+    end
+    scan(LP:FindFirstChild("Backpack")); scan(LP.Character)
     table.sort(out,function(a,b) if C.SeedMode=="Smart (Most Valuable)" then return a.Price>b.Price end return a.Plant<b.Plant end); return out
 end
 spawnProcess(function()
@@ -735,7 +870,21 @@ spawnProcess(function()
     while Nero.alive do
         if C.Plant then
             local seeds=availableSeeds(); local pos=nextPlantPosition()
-            if #seeds>0 and pos then rotation=rotation%#seeds+1; local seed=C.SeedMode=="Rotation" and seeds[rotation] or seeds[1]; local ok,result=pcall(function() return Remotes.PlantSeed:InvokeServer(seed.Plant,pos) end); if ok and result then Nero.stats.planted+=1 else if C.AutoReplant then table.insert(Nero.replantQueue,1,pos) end end end
+            if #seeds>0 and pos then
+                rotation=rotation%#seeds+1
+                local seed=C.SeedMode=="Rotation" and seeds[rotation] or seeds[1]
+                local ok,result=pcall(function() return Remotes.PlantSeed:InvokeServer(seed.Plant,pos) end)
+                if ok and result~=false then
+                    Nero.stats.planted+=1; Nero.stats.lastPlantError=nil
+                else
+                    Nero.stats.lastPlantError=tostring(result or "PlantSeed request failed")
+                    if C.AutoReplant then table.insert(Nero.replantQueue,1,pos) end
+                end
+            elseif #seeds==0 then
+                Nero.stats.lastPlantError="No selected seed is available above the reserve"
+            elseif not pos then
+                Nero.stats.lastPlantError="No empty plantable position was found"
+            end
         end
         task.wait(math.max(.2,tonumber(C.ReplantDelay) or .5))
     end
@@ -1029,11 +1178,22 @@ end)
 spawnProcess(function()
     while Nero.alive do
         local elapsed=os.clock()-Nero.started
-        if C.Status then status.Text=string.format("  ACTIVE • Harvested %d  • Planted %d  • Sold %d  • Runtime %02d:%02d",Nero.stats.harvested,Nero.stats.planted,Nero.stats.sold,elapsed//60,elapsed%60) end
+        if C.Status then
+            if C.Plant and Nero.stats.lastPlantError then
+                status.Text="  AUTO-PLANT WAITING • "..Nero.stats.lastPlantError
+            else
+                status.Text=string.format("  ACTIVE • Harvested %d  • Planted %d  • Sold %d  • Runtime %02d:%02d",Nero.stats.harvested,Nero.stats.planted,Nero.stats.sold,elapsed//60,elapsed%60)
+            end
+        end
         task.wait(1)
     end
 end)
-spawnProcess(function() while Nero.alive do TS:Create(glow,TweenInfo.new(1.8,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{BackgroundTransparency=.6,BackgroundColor3=Color3.fromRGB(233,91,255)}):Play(); task.wait(1.8); TS:Create(glow,TweenInfo.new(1.8,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{BackgroundTransparency=.38,BackgroundColor3=Color3.fromRGB(104,85,255)}):Play(); task.wait(1.8) end end)
+spawnProcess(function()
+    while Nero.alive do
+        themeTween(glow,TweenInfo.new(1.8,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{BackgroundTransparency=.6,BackgroundColor3=Color3.fromRGB(233,91,255)}); task.wait(1.8)
+        themeTween(glow,TweenInfo.new(1.8,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{BackgroundTransparency=.38,BackgroundColor3=Color3.fromRGB(104,85,255)}); task.wait(1.8)
+    end
+end)
 function Nero:Destroy()
     if not self.alive then return end
     self.alive=false
