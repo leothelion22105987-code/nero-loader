@@ -38,7 +38,8 @@ for _,oldGui in ipairs(playerGui:GetChildren()) do if oldGui.Name=="Nero" or old
 local Nero = {alive=true, launchId=NERO_LAUNCH_ID, started=os.clock(), stats={harvested=0, planted=0, sold=0}, conns={}, threads={}, selectionRevision={}}
 getgenv().Nero = Nero
 
-local loadingGui=inst("ScreenGui",{Name="NeroLoading",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=999,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},playerGui)
+local NERO_DISPLAY_ORDER=2147483647
+local loadingGui=inst("ScreenGui",{Name="NeroLoading",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=NERO_DISPLAY_ORDER,OnTopOfCoreBlur=true,ZIndexBehavior=Enum.ZIndexBehavior.Global},playerGui)
 Nero.LoadingGui=loadingGui
 local loadingRoot=inst("CanvasGroup",{Name="MagicLoading",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,GroupTransparency=0},loadingGui)
 local loadingBackdrop=inst("Frame",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(12,4,27),BorderSizePixel=0},loadingRoot)
@@ -169,10 +170,10 @@ if NERO_ENV.NeroLaunchSerial~=NERO_LAUNCH_ID then
     return
 end
 
-local gui=inst("ScreenGui",{Name="Nero",ResetOnSpawn=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},playerGui)
+local gui=inst("ScreenGui",{Name="Nero",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=NERO_DISPLAY_ORDER,OnTopOfCoreBlur=true,ZIndexBehavior=Enum.ZIndexBehavior.Global},playerGui)
 Nero.Gui=gui
 local camera=workspace.CurrentCamera
-local responsiveScale=math.clamp(math.min(camera.ViewportSize.X/850,camera.ViewportSize.Y/570),.62,1)
+local responsiveScale=math.clamp(math.min(camera.ViewportSize.X/850,camera.ViewportSize.Y/570),.3,1)
 local uiScale=inst("UIScale",{Scale=responsiveScale},gui)
 local glow=inst("Frame",{Name="Glow",Size=UDim2.fromOffset(790,520),Position=UDim2.new(.5,-395,.5,-260),BackgroundColor3=Color3.fromRGB(169,58,255),BackgroundTransparency=.48,BorderSizePixel=0,Visible=false},gui)
 inst("UICorner",{CornerRadius=UDim.new(0,24)},glow)
@@ -659,6 +660,7 @@ applyCustomization()
 
 local minimized=false
 Nero.UIOpen=true
+local clampGroupOnScreen
 local function setOpen(open)
     open=open==true
     minimized=not open
@@ -669,6 +671,7 @@ local function setOpen(open)
         glow.Size=UDim2.fromOffset(720,465); glow.BackgroundTransparency=1
         TS:Create(main,TweenInfo.new(.32,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(760,490),BackgroundTransparency=.025}):Play()
         TS:Create(glow,TweenInfo.new(.38,Enum.EasingStyle.Quad),{Size=UDim2.fromOffset(790,520),BackgroundTransparency=.48}):Play()
+        delayProcess(.4,function() if clampGroupOnScreen then clampGroupOnScreen(main,glow) end end)
     else
         TS:Create(main,TweenInfo.new(.18,Enum.EasingStyle.Quad),{Size=UDim2.fromOffset(710,450),BackgroundTransparency=1}):Play()
         TS:Create(glow,TweenInfo.new(.18),{BackgroundTransparency=1}):Play()
@@ -678,24 +681,90 @@ end
 min.MouseButton1Click:Connect(function() setOpen(false) end)
 local function toggleUI() setOpen(minimized or not main.Visible) end
 Nero.ToggleUI=toggleUI
-orb.Activated:Connect(toggleUI)
 
 local function makeDraggable(handle,target,companion)
-    local dragging,startInput,startPos,companionStart,moved=false,false,nil,nil,false
-    handle.InputBegan:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=true; moved=false; startInput=i.Position; startPos=target.Position; companionStart=companion and companion.Position or nil end
-    end)
-    handle.InputChanged:Connect(function(i)
-        if dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
-            local d=i.Position-startInput; if d.Magnitude>5 then moved=true end
-            target.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
-            if companion and companionStart then companion.Position=UDim2.new(companionStart.X.Scale,companionStart.X.Offset+d.X,companionStart.Y.Scale,companionStart.Y.Offset+d.Y) end
+    local state={dragging=false,moved=false,suppressUntil=0}
+    local startInput,startPos,companionStart,startMin,startMax
+    local function bounds()
+        local aPos,aSize=target.AbsolutePosition,target.AbsoluteSize
+        local minX,minY,maxX,maxY=aPos.X,aPos.Y,aPos.X+aSize.X,aPos.Y+aSize.Y
+        if companion then
+            local bPos,bSize=companion.AbsolutePosition,companion.AbsoluteSize
+            minX=math.min(minX,bPos.X); minY=math.min(minY,bPos.Y)
+            maxX=math.max(maxX,bPos.X+bSize.X); maxY=math.max(maxY,bPos.Y+bSize.Y)
         end
-    end)
-    handle.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end end)
+        return Vector2.new(minX,minY),Vector2.new(maxX,maxY)
+    end
+    local function moveFromStart(screenDelta)
+        local viewport=(workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1920,1080)
+        local minDX,maxDX=-startMin.X,viewport.X-startMax.X
+        local minDY,maxDY=-startMin.Y,viewport.Y-startMax.Y
+        if minDX>maxDX then minDX,maxDX=(minDX+maxDX)/2,(minDX+maxDX)/2 end
+        if minDY>maxDY then minDY,maxDY=(minDY+maxDY)/2,(minDY+maxDY)/2 end
+        local dx=math.clamp(screenDelta.X,minDX,maxDX)
+        local dy=math.clamp(screenDelta.Y,minDY,maxDY)
+        local scale=math.max(.01,uiScale.Scale)
+        target.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+dx/scale,startPos.Y.Scale,startPos.Y.Offset+dy/scale)
+        if companion and companionStart then
+            companion.Position=UDim2.new(companionStart.X.Scale,companionStart.X.Offset+dx/scale,companionStart.Y.Scale,companionStart.Y.Offset+dy/scale)
+        end
+    end
+    table.insert(Nero.conns,handle.InputBegan:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            state.dragging=true; state.moved=false; startInput=i.Position; startPos=target.Position; companionStart=companion and companion.Position or nil; startMin,startMax=bounds()
+        end
+    end))
+    table.insert(Nero.conns,UIS.InputChanged:Connect(function(i)
+        if state.dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
+            local d=i.Position-startInput
+            if d.Magnitude>5 then state.moved=true end
+            moveFromStart(d)
+        end
+    end))
+    table.insert(Nero.conns,UIS.InputEnded:Connect(function(i)
+        if state.dragging and (i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch) then
+            state.dragging=false
+            if state.moved then state.suppressUntil=os.clock()+.2 end
+        end
+    end))
+    return state
 end
-makeDraggable(orb,orbGlow)
+clampGroupOnScreen=function(target,companion)
+    if not (target and target.Parent) then return end
+    local aPos,aSize=target.AbsolutePosition,target.AbsoluteSize
+    local minX,minY,maxX,maxY=aPos.X,aPos.Y,aPos.X+aSize.X,aPos.Y+aSize.Y
+    if companion and companion.Parent then
+        local bPos,bSize=companion.AbsolutePosition,companion.AbsoluteSize
+        minX=math.min(minX,bPos.X); minY=math.min(minY,bPos.Y)
+        maxX=math.max(maxX,bPos.X+bSize.X); maxY=math.max(maxY,bPos.Y+bSize.Y)
+    end
+    local viewport=(workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1920,1080)
+    local dx,dy=0,0
+    if maxX-minX>viewport.X then dx=viewport.X/2-(minX+maxX)/2 elseif minX<0 then dx=-minX elseif maxX>viewport.X then dx=viewport.X-maxX end
+    if maxY-minY>viewport.Y then dy=viewport.Y/2-(minY+maxY)/2 elseif minY<0 then dy=-minY elseif maxY>viewport.Y then dy=viewport.Y-maxY end
+    if dx~=0 or dy~=0 then
+        local scale=math.max(.01,uiScale.Scale)
+        target.Position=UDim2.new(target.Position.X.Scale,target.Position.X.Offset+dx/scale,target.Position.Y.Scale,target.Position.Y.Offset+dy/scale)
+        if companion and companion.Parent then companion.Position=UDim2.new(companion.Position.X.Scale,companion.Position.X.Offset+dx/scale,companion.Position.Y.Scale,companion.Position.Y.Offset+dy/scale) end
+    end
+end
+local orbDragState=makeDraggable(orb,orbGlow)
 makeDraggable(top,main,glow)
+orb.Activated:Connect(function() if os.clock()>=orbDragState.suppressUntil then toggleUI() end end)
+spawnProcess(function()
+    local lastViewport=Vector2.zero
+    while Nero.alive do
+        local currentCamera=workspace.CurrentCamera
+        local viewport=currentCamera and currentCamera.ViewportSize
+        if viewport and viewport~=lastViewport then
+            lastViewport=viewport
+            uiScale.Scale=math.clamp(math.min(viewport.X/850,viewport.Y/570),.3,1)
+            task.wait()
+            clampGroupOnScreen(main,glow); clampGroupOnScreen(orbGlow)
+        end
+        task.wait(.25)
+    end
+end)
 
 spawnProcess(function()
     loadingStatus.Text="Weaving violet auroras..."
@@ -873,7 +942,24 @@ spawnProcess(function()
             if #seeds>0 and pos then
                 rotation=rotation%#seeds+1
                 local seed=C.SeedMode=="Rotation" and seeds[rotation] or seeds[1]
-                local ok,result=pcall(function() return Remotes.PlantSeed:InvokeServer(seed.Plant,pos) end)
+                local char=LP.Character
+                local hum=char and char:FindFirstChildOfClass("Humanoid")
+                local previous=char and char:FindFirstChildOfClass("Tool")
+                local equipped=hum and seed.Tool and seed.Tool.Parent and seed.Tool:IsDescendantOf(LP)
+                if equipped and seed.Tool.Parent~=char then
+                    hum:EquipTool(seed.Tool)
+                    task.wait(.08)
+                    equipped=seed.Tool.Parent==char
+                end
+                local ok,result
+                if equipped then
+                    ok,result=pcall(function() return Remotes.PlantSeed:InvokeServer(seed.Plant,pos) end)
+                else
+                    ok,result=false,"Selected seed could not be equipped"
+                end
+                if hum and previous and previous~=seed.Tool and previous.Parent then
+                    hum:EquipTool(previous)
+                end
                 if ok and result~=false then
                     Nero.stats.planted+=1; Nero.stats.lastPlantError=nil
                 else
