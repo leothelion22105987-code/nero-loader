@@ -11,6 +11,7 @@ if previousNero then
     for _,c in ipairs(type(previousNero.conns)=="table" and previousNero.conns or {}) do pcall(function() c:Disconnect() end) end
     for _,thread in ipairs(type(previousNero.threads)=="table" and previousNero.threads or {}) do pcall(task.cancel,thread) end
     pcall(function() if previousNero.LoadingGui then previousNero.LoadingGui:Destroy() end end)
+    pcall(function() if previousNero.PlayerControlsGui then previousNero.PlayerControlsGui:Destroy() end end)
     pcall(function() if previousNero.Gui then previousNero.Gui:Destroy() end end)
     getgenv().Nero=nil
 end
@@ -34,7 +35,7 @@ end
 
 local playerGui=LP:WaitForChild("PlayerGui")
 if NERO_ENV.NeroLaunchSerial~=NERO_LAUNCH_ID then return end
-for _,oldGui in ipairs(playerGui:GetChildren()) do if oldGui.Name=="Nero" or oldGui.Name=="NeroLoading" then oldGui:Destroy() end end
+for _,oldGui in ipairs(playerGui:GetChildren()) do if oldGui.Name=="Nero" or oldGui.Name=="NeroLoading" or oldGui.Name=="NeroPlayerControls" then oldGui:Destroy() end end
 local Nero = {alive=true, launchId=NERO_LAUNCH_ID, started=os.clock(), stats={harvested=0, planted=0, sold=0}, conns={}, threads={}, selectionRevision={}}
 getgenv().Nero = Nero
 
@@ -100,6 +101,7 @@ local C = {
     Water=false, WaterInterval=5, Sprinklers=false, SprinklerType="Best Available",
     ReplaceSprinklers=true, AntiAFK=true, RespawnReturn=true, Status=true, Log=true,
     LoginClaim=false, Speed="Normal", Sounds=false, WalkSpeed=16, JumpHeight=7.2,
+    Fly=false, FlySpeed=50, Noclip=false,
     AutoSave=true, AutoLoad=true, ActiveConfig="default", ModeratorSafety=false, ModeratorAction="Leave",
     InterfaceSize="Normal", OrbSize="Normal", FontSize="Normal", ThemeHue=.775,
     SeedWhitelist={__ALL=true}, PlantSeedWhitelist={__ALL=true}, GearWhitelist={__ALL=true}, PlantWhitelist={__ALL=true}, RarityWhitelist={__ALL=true}, MutationWhitelist={__ALL=true},
@@ -127,6 +129,9 @@ local function normalizeConfig()
         elseif C[key].__ALL==nil then C[key].__ALL=false end
     end
     if type(C.ModeratorSafety)~="boolean" then C.ModeratorSafety=false end
+    if type(C.Fly)~="boolean" then C.Fly=false end
+    if type(C.Noclip)~="boolean" then C.Noclip=false end
+    C.FlySpeed=math.clamp(tonumber(C.FlySpeed) or 50,5,300)
     if C.ModeratorAction~="Leave" and C.ModeratorAction~="Server Hop" then C.ModeratorAction="Leave" end
     if not table.find({"Tiny","Normal","Big"},C.InterfaceSize) then C.InterfaceSize="Normal" end
     if not table.find({"Tiny","Normal","Big"},C.OrbSize) then C.OrbSize="Normal" end
@@ -172,6 +177,28 @@ end
 
 local gui=inst("ScreenGui",{Name="Nero",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=NERO_DISPLAY_ORDER,OnTopOfCoreBlur=true,ZIndexBehavior=Enum.ZIndexBehavior.Global},playerGui)
 Nero.Gui=gui
+local playerControlsGui=inst("ScreenGui",{Name="NeroPlayerControls",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=NERO_DISPLAY_ORDER,OnTopOfCoreBlur=true,ZIndexBehavior=Enum.ZIndexBehavior.Global},playerGui)
+Nero.PlayerControlsGui=playerControlsGui
+local flightControls=inst("Frame",{Name="FlightTouchControls",AnchorPoint=Vector2.new(1,.5),Size=UDim2.fromOffset(76,150),Position=UDim2.new(1,-18,.55,0),BackgroundColor3=Color3.fromRGB(37,15,67),BackgroundTransparency=.12,BorderSizePixel=0,Visible=false,Active=true,ZIndex=200},playerControlsGui)
+inst("UICorner",{CornerRadius=UDim.new(0,17)},flightControls)
+inst("UIStroke",{Color=Color3.fromRGB(218,129,255),Transparency=.12,Thickness=2},flightControls)
+inst("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(83,31,132)),ColorSequenceKeypoint.new(1,Color3.fromRGB(31,18,70))}),Rotation=110},flightControls)
+inst("TextLabel",{Size=UDim2.new(1,0,0,27),BackgroundTransparency=1,Text="FLY",Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=Color3.fromRGB(246,223,255),ZIndex=201},flightControls)
+local flyUpButton=inst("TextButton",{Name="Ascend",Size=UDim2.fromOffset(60,50),Position=UDim2.fromOffset(8,27),BackgroundColor3=Color3.fromRGB(122,53,184),Text="UP",Font=Enum.Font.GothamBold,TextSize=13,TextColor3=Color3.fromRGB(255,241,255),AutoButtonColor=false,ZIndex=201},flightControls)
+inst("UICorner",{CornerRadius=UDim.new(0,12)},flyUpButton); inst("UIStroke",{Color=Color3.fromRGB(232,159,255),Transparency=.35,Thickness=1},flyUpButton)
+local flyDownButton=inst("TextButton",{Name="Descend",Size=UDim2.fromOffset(60,50),Position=UDim2.fromOffset(8,86),BackgroundColor3=Color3.fromRGB(76,45,133),Text="DOWN",Font=Enum.Font.GothamBold,TextSize=11,TextColor3=Color3.fromRGB(244,228,255),AutoButtonColor=false,ZIndex=201},flightControls)
+inst("UICorner",{CornerRadius=UDim.new(0,12)},flyDownButton); inst("UIStroke",{Color=Color3.fromRGB(184,142,255),Transparency=.4,Thickness=1},flyDownButton)
+local touchFlyUp,touchFlyDown=false,false
+local function bindFlightHold(button,setter)
+    table.insert(Nero.conns,button.InputBegan:Connect(function(inputObject)
+        if inputObject.UserInputType==Enum.UserInputType.Touch or inputObject.UserInputType==Enum.UserInputType.MouseButton1 then setter(true) end
+    end))
+    table.insert(Nero.conns,button.InputEnded:Connect(function(inputObject)
+        if inputObject.UserInputType==Enum.UserInputType.Touch or inputObject.UserInputType==Enum.UserInputType.MouseButton1 then setter(false) end
+    end))
+end
+bindFlightHold(flyUpButton,function(active) touchFlyUp=active end)
+bindFlightHold(flyDownButton,function(active) touchFlyDown=active end)
 local camera=workspace.CurrentCamera
 local responsiveScale=math.clamp(math.min(camera.ViewportSize.X/850,camera.ViewportSize.Y/570),.3,1)
 local uiScale=inst("UIScale",{Scale=responsiveScale},gui)
@@ -232,10 +259,10 @@ TS:Create(titleGradient,TweenInfo.new(3.4,Enum.EasingStyle.Sine,Enum.EasingDirec
 TS:Create(headerGradient,TweenInfo.new(2.8,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{Offset=Vector2.new(.7,0)}):Play()
 TS:Create(grad,TweenInfo.new(8,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{Rotation=220}):Play()
 
-local tabs={"Info","Harvest","Plant","Sell","Shop","Quests","Packs","Water","Customization","Misc"}
-local icons={"◆","◆","✿","$","▣","✓","◆","≈","C","⚙"}
+local tabs={"Info","Harvest","Plant","Sell","Shop","Quests","Packs","Water","Player","Customization","Misc"}
+local icons={"◆","◆","✿","$","▣","✓","◆","≈","P","C","⚙"}
 local current
-local pageDescriptions={Info="Live garden intelligence",Harvest="Collect with precision",Plant="Shape your enchanted garden",Sell="Turn harvests into shillings",Shop="Follow every fresh restock",Quests="Claim completed rewards",Packs="Open seeds with style",Water="Keep every plant thriving",Customization="Make every part of Nero yours",Misc="Movement, safety and profiles"}
+local pageDescriptions={Info="Live garden intelligence",Harvest="Collect with precision",Plant="Shape your enchanted garden",Sell="Turn harvests into shillings",Shop="Follow every fresh restock",Quests="Claim completed rewards",Packs="Open seeds with style",Water="Keep every plant thriving",Player="Movement and character controls",Customization="Make every part of Nero yours",Misc="Safety, utilities and profiles"}
 local function page(name)
     local p=inst("ScrollingFrame",{Name=name,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,ScrollBarThickness=3,ScrollBarImageColor3=Color3.fromRGB(128,65,229),CanvasSize=UDim2.fromOffset(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},pages)
     inst("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},p)
@@ -452,6 +479,13 @@ toggle(P.Water,"Auto-Place Sprinklers","Sprinklers")
 dropdown(P.Water,"Sprinkler Type","SprinklerType",{"Best Available","Basic Sprinkler","Turbo Sprinkler","Super Sprinkler"})
 toggle(P.Water,"Replace Expired Sprinklers","ReplaceSprinklers")
 
+input(P.Player,"Walk Speed","WalkSpeed","16 is Roblox default")
+input(P.Player,"Jump Height","JumpHeight","7.2 is Roblox default")
+toggle(P.Player,"Enable Fly","Fly","Uses WASD or the mobile thumbstick; Space/E or the touch UP button ascends")
+input(P.Player,"Fly Speed","FlySpeed","Flight movement speed from 5 to 300")
+toggle(P.Player,"Noclip","Noclip","Move through walls and other solid parts")
+toggle(P.Player,"Auto-Respawn Return","RespawnReturn","Return to your plot after respawning")
+
 local openColorWheel
 dropdown(P.Customization,"Interface Size","InterfaceSize",{"Tiny","Normal","Big"},"Resize the complete Nero interface")
 dropdown(P.Customization,"N Circle Size","OrbSize",{"Tiny","Normal","Big"},"Resize the movable N launcher without moving its center")
@@ -464,9 +498,6 @@ themeButton.Activated:Connect(function() if openColorWheel then openColorWheel()
 toggle(P.Misc,"Moderator Join Protection","ModeratorSafety","Off by default; only detects the game's verified staff ranks")
 dropdown(P.Misc,"What to do when moderator joins","ModeratorAction",{"Leave","Server Hop"},"Choose whether Nero leaves or moves to another public server")
 toggle(P.Misc,"Anti-AFK","AntiAFK")
-input(P.Misc,"Walk Speed","WalkSpeed","16 is Roblox default")
-input(P.Misc,"Jump Height","JumpHeight","7.2 is Roblox default")
-toggle(P.Misc,"Auto-Respawn Return","RespawnReturn")
 toggle(P.Misc,"Status Display","Status")
 toggle(P.Misc,"Activity Log","Log")
 toggle(P.Misc,"Auto Login-Streak Claim","LoginClaim")
@@ -612,7 +643,7 @@ end
 local function applyCustomization()
     uiScale.Scale=responsiveScale*(interfaceFactors[C.InterfaceSize] or 1)
     local fontFactor=fontFactors[C.FontSize] or 1
-    for _,root in ipairs({gui,loadingGui}) do
+    for _,root in ipairs({gui,loadingGui,playerControlsGui}) do
         applyFontTo(root,fontFactor)
     end
     local orbData=orbSizes[C.OrbSize] or orbSizes.Normal
@@ -620,7 +651,7 @@ local function applyCustomization()
     orb.Size=UDim2.fromOffset(orbData[2],orbData[2])
     orb.Position=UDim2.fromOffset(orbData[3],orbData[3])
     orb.TextSize=math.clamp(math.floor(orbData[4]*fontFactor+.5),15,40)
-    applyThemeTo(gui); applyThemeTo(loadingGui)
+    applyThemeTo(gui); applyThemeTo(loadingGui); applyThemeTo(playerControlsGui)
     themePreview.BackgroundColor3=Color3.fromHSV(C.ThemeHue,.78,1)
 end
 Nero.ApplyCustomization=applyCustomization
@@ -758,7 +789,8 @@ spawnProcess(function()
         local viewport=currentCamera and currentCamera.ViewportSize
         if viewport and viewport~=lastViewport then
             lastViewport=viewport
-            uiScale.Scale=math.clamp(math.min(viewport.X/850,viewport.Y/570),.3,1)
+            responsiveScale=math.clamp(math.min(viewport.X/850,viewport.Y/570),.3,1)
+            uiScale.Scale=responsiveScale*(interfaceFactors[C.InterfaceSize] or 1)
             task.wait()
             clampGroupOnScreen(main,glow); clampGroupOnScreen(orbGlow)
         end
@@ -1199,12 +1231,95 @@ local function applyMovement(char)
     if h then h.WalkSpeed=math.clamp(tonumber(C.WalkSpeed) or 16,0,250); h.UseJumpPower=false; h.JumpHeight=math.clamp(tonumber(C.JumpHeight) or 7.2,0,100) end
 end
 local initialHum=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid"); if initialHum then originalMovement={WalkSpeed=initialHum.WalkSpeed,JumpHeight=initialHum.JumpHeight,UseJumpPower=initialHum.UseJumpPower,JumpPower=initialHum.JumpPower} end
+local noclipOriginals=setmetatable({},{__mode="k"})
+local function restoreNoclip()
+    for part,canCollide in pairs(noclipOriginals) do
+        if part and part.Parent then pcall(function() part.CanCollide=canCollide end) end
+        noclipOriginals[part]=nil
+    end
+end
+Nero.RestoreNoclip=restoreNoclip
+table.insert(Nero.conns,RunService.Stepped:Connect(function()
+    if not Nero.alive then return end
+    local char=LP.Character
+    if C.Noclip and char then
+        for _,part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if noclipOriginals[part]==nil then noclipOriginals[part]=part.CanCollide end
+                part.CanCollide=false
+            end
+        end
+    elseif next(noclipOriginals)~=nil then
+        restoreNoclip()
+    end
+end))
+
+local flight={root=nil,humanoid=nil,velocity=nil,gyro=nil,autoRotate=nil}
+local function stopFlight()
+    touchFlyUp=false; touchFlyDown=false
+    if flightControls and flightControls.Parent then flightControls.Visible=false end
+    if flight.velocity then pcall(function() flight.velocity:Destroy() end) end
+    if flight.gyro then pcall(function() flight.gyro:Destroy() end) end
+    if flight.humanoid and flight.humanoid.Parent then
+        pcall(function()
+            flight.humanoid.AutoRotate=flight.autoRotate~=false
+            flight.humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        end)
+    end
+    if flight.root and flight.root.Parent then pcall(function() flight.root.AssemblyLinearVelocity=Vector3.zero end) end
+    flight.root=nil; flight.humanoid=nil; flight.velocity=nil; flight.gyro=nil; flight.autoRotate=nil
+end
+local function startFlight(root,humanoid)
+    stopFlight()
+    flight.root=root; flight.humanoid=humanoid; flight.autoRotate=humanoid.AutoRotate
+    local velocity=inst("BodyVelocity",{Name="NeroFlightVelocity",MaxForce=Vector3.new(1e8,1e8,1e8),P=15000,Velocity=Vector3.zero},root)
+    local gyro=inst("BodyGyro",{Name="NeroFlightGyro",MaxTorque=Vector3.new(0,1e8,0),P=12000,D=650,CFrame=root.CFrame},root)
+    flight.velocity=velocity; flight.gyro=gyro
+    humanoid.AutoRotate=false
+    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+end
+Nero.StopFlight=stopFlight
+spawnProcess(function()
+    while Nero.alive do
+        if C.Fly then
+            local char=LP.Character
+            local root=char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid=char and char:FindFirstChildOfClass("Humanoid")
+            if root and humanoid and humanoid.Health>0 then
+                if flight.root~=root or flight.humanoid~=humanoid or not (flight.velocity and flight.velocity.Parent and flight.gyro and flight.gyro.Parent) then startFlight(root,humanoid) end
+                flightControls.Visible=UIS.TouchEnabled
+                local speed=math.clamp(tonumber(C.FlySpeed) or 50,5,300)
+                local vertical=0
+                local typing=UIS:GetFocusedTextBox()~=nil
+                if touchFlyUp or humanoid.Jump or (not typing and (UIS:IsKeyDown(Enum.KeyCode.Space) or UIS:IsKeyDown(Enum.KeyCode.E))) then vertical+=1 end
+                if touchFlyDown or (not typing and (UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.Q))) then vertical-=1 end
+                local move=humanoid.MoveDirection
+                local horizontal=Vector3.new(move.X,0,move.Z)
+                if horizontal.Magnitude>1 then horizontal=horizontal.Unit end
+                flight.velocity.Velocity=horizontal*speed+Vector3.new(0,vertical*speed,0)
+                local activeCamera=workspace.CurrentCamera
+                local look=activeCamera and activeCamera.CFrame.LookVector or root.CFrame.LookVector
+                local flatLook=Vector3.new(look.X,0,look.Z)
+                if flatLook.Magnitude>.01 then flight.gyro.CFrame=CFrame.lookAt(root.Position,root.Position+flatLook.Unit) end
+                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+            else
+                stopFlight()
+            end
+        elseif flight.root then
+            stopFlight()
+        elseif flightControls.Visible then
+            flightControls.Visible=false
+        end
+        RunService.RenderStepped:Wait()
+    end
+end)
 local function plotReturnPosition()
     local plots=workspace:FindFirstChild("Plots"); if not plots then return end
     for _,plot in ipairs(plots:GetChildren()) do if plot:IsA("Model") and plot:GetAttribute("Owner")==LP.UserId then local area=plot:FindFirstChild("PlantableArea"); local part=area and area:FindFirstChildWhichIsA("BasePart"); if part then return part.CFrame*CFrame.new(0,5,0) end end end
 end
 table.insert(Nero.conns,LP.CharacterAdded:Connect(function(char) local h=char:WaitForChild("Humanoid",10); applyMovement(char); if C.RespawnReturn then task.wait(1); local root=char:FindFirstChild("HumanoidRootPart"); local cf=plotReturnPosition(); if root and cf then root.CFrame=cf end end end))
-spawnProcess(function() while Nero.alive do applyMovement(LP.Character); if C.AutoSave then saveConfig(C.ActiveConfig) end; task.wait(5) end end)
+spawnProcess(function() while Nero.alive do applyMovement(LP.Character); task.wait(.25) end end)
+spawnProcess(function() while Nero.alive do if C.AutoSave then saveConfig(C.ActiveConfig) end; task.wait(5) end end)
 spawnProcess(function() while Nero.alive do if C.LoginClaim then Remotes.ClaimLoginStreak:FireServer() end; task.wait(30) end end)
 spawnProcess(function()
     while Nero.alive do
@@ -1287,10 +1402,13 @@ function Nero:Destroy()
     table.clear(self.conns)
     for _,thread in ipairs(self.threads) do pcall(task.cancel,thread) end
     table.clear(self.threads)
+    if self.StopFlight then pcall(self.StopFlight) end
+    if self.RestoreNoclip then pcall(self.RestoreNoclip) end
     pcall(function() VU:Button2Up(Vector2.zero,workspace.CurrentCamera.CFrame) end)
     local h=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
     if h then h.WalkSpeed=originalMovement.WalkSpeed; h.UseJumpPower=originalMovement.UseJumpPower; h.JumpHeight=originalMovement.JumpHeight; h.JumpPower=originalMovement.JumpPower end
     if self.LoadingGui then self.LoadingGui:Destroy() end
+    if self.PlayerControlsGui then self.PlayerControlsGui:Destroy() end
     if self.Gui then self.Gui:Destroy() end
     if getgenv().Nero==self then getgenv().Nero=nil end
 end
